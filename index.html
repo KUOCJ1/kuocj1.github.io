@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用 AI 規劃旅遊 — 三大工具實戰比較</title>
+  <style>
+    :root {
+      --bg: #0a0e1a;
+      --surface: #111827;
+      --surface2: #1a2235;
+      --border: rgba(99,179,237,0.15);
+      --accent1: #63b3ed;   /* Claude — blue */
+      --accent2: #68d391;   /* Codex  — green */
+      --accent3: #f6ad55;   /* Anti-Gravity — orange */
+      --text: #e2e8f0;
+      --muted: #718096;
+      --white: #ffffff;
+    --accent4: #b794f4;   /* plugins — purple */
+    --accent5: #76e4f7;   /* office  — cyan   */
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* ─── Slide container ─── */
+    #deck {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 60px 80px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(60px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+    .slide.active {
+      opacity: 1;
+      pointer-events: all;
+      transform: translateX(0);
+    }
+    .slide.exit {
+      opacity: 0;
+      transform: translateX(-60px);
+    }
+
+    /* ─── Background grid ─── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(99,179,237,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,179,237,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+
+    /* ─── Navigation ─── */
+    #nav {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      z-index: 100;
+    }
+    .nav-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .nav-btn:hover { background: var(--surface); border-color: var(--accent1); }
+    #counter { color: var(--muted); font-size: 13px; min-width: 48px; text-align: center; }
+
+    /* ─── Progress bar ─── */
+    #progress {
+      position: fixed;
+      top: 0; left: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent1), var(--accent3));
+      transition: width 0.4s ease;
+      z-index: 100;
+    }
+
+    /* ─── Slide number badge ─── */
+    #slide-badge {
+      position: fixed;
+      top: 18px; right: 24px;
+      font-size: 11px;
+      color: var(--muted);
+      z-index: 100;
+      letter-spacing: 0.05em;
+    }
+
+    /* ─── Keyboard hint ─── */
+    #hint {
+      position: fixed;
+      bottom: 80px; right: 24px;
+      font-size: 11px;
+      color: rgba(113,128,150,0.5);
+    }
+
+    /* ─── Typography ─── */
+    .tag {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+    }
+    .tag-blue  { background: rgba(99,179,237,0.1);  color: var(--accent1); border: 1px solid rgba(99,179,237,0.3);  }
+    .tag-green { background: rgba(104,211,145,0.1); color: var(--accent2); border: 1px solid rgba(104,211,145,0.3); }
+    .tag-orange{ background: rgba(246,173,85,0.1);  color: var(--accent3); border: 1px solid rgba(246,173,85,0.3);  }
+    .tag-white { background: rgba(255,255,255,0.05); color: var(--muted);  border: 1px solid rgba(255,255,255,0.1); }
+
+    h1 { font-size: clamp(2rem, 4vw, 3.2rem); font-weight: 700; line-height: 1.2; text-align: center; }
+    h2 { font-size: clamp(1.5rem, 2.5vw, 2rem); font-weight: 700; margin-bottom: 32px; }
+    h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+    p  { line-height: 1.7; color: var(--muted); }
+
+    .subtitle {
+      font-size: clamp(1rem, 1.5vw, 1.2rem);
+      color: var(--muted);
+      text-align: center;
+      margin-top: 16px;
+      max-width: 560px;
+    }
+
+    /* ─── Cards ─── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 32px;
+      width: 100%;
+    }
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      width: 100%;
+      max-width: 1000px;
+    }
+    .tool-card {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: transform 0.2s;
+    }
+    .tool-card:hover { transform: translateY(-4px); }
+    .tool-card.c1 { border: 1px solid rgba(99,179,237,0.3);  }
+    .tool-card.c2 { border: 1px solid rgba(104,211,145,0.3); }
+    .tool-card.c3 { border: 1px solid rgba(246,173,85,0.3);  }
+
+    .tool-icon {
+      width: 48px; height: 48px;
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+    }
+    .icon1 { background: rgba(99,179,237,0.12); }
+    .icon2 { background: rgba(104,211,145,0.12); }
+    .icon3 { background: rgba(246,173,85,0.12); }
+
+    .tool-name { font-size: 1.1rem; font-weight: 700; }
+    .tool-name.c1 { color: var(--accent1); }
+    .tool-name.c2 { color: var(--accent2); }
+    .tool-name.c3 { color: var(--accent3); }
+
+    /* ─── Feature detail slide ─── */
+    .detail-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      width: 100%;
+      max-width: 960px;
+    }
+    .feature-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .feature-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      color: var(--text);
+    }
+    .feature-list li::before {
+      content: '▸';
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .list-blue   li::before { color: var(--accent1); }
+    .list-green  li::before { color: var(--accent2); }
+    .list-orange  li::before { color: var(--accent3); }
+    .list-purple  li::before { color: var(--accent4); }
+    .list-cyan    li::before { color: var(--accent5); }
+
+    .highlight-box {
+      border-radius: 12px;
+      padding: 20px 24px;
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+    .hb-blue   { background: rgba(99,179,237,0.07);  border: 1px solid rgba(99,179,237,0.2);  color: var(--accent1); }
+    .hb-green  { background: rgba(104,211,145,0.07); border: 1px solid rgba(104,211,145,0.2); color: var(--accent2); }
+    .hb-orange { background: rgba(246,173,85,0.07);  border: 1px solid rgba(246,173,85,0.2);  color: var(--accent3); }
+
+    /* ─── Comparison table ─── */
+    .comp-table {
+      width: 100%;
+      max-width: 900px;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .comp-table th, .comp-table td {
+      padding: 12px 16px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .comp-table th {
+      font-weight: 700;
+      font-size: 0.85rem;
+      letter-spacing: 0.05em;
+    }
+    .comp-table td:first-child { text-align: left; color: var(--muted); font-size: 0.85rem; }
+    .comp-table tr:last-child td { border-bottom: none; }
+    .comp-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .th1 { color: var(--accent1); }
+    .th2 { color: var(--accent2); }
+    .th3 { color: var(--accent3); }
+    .good { color: #68d391; } .ok { color: #f6ad55; } .no { color: #fc8181; }
+
+    /* ─── Timeline / steps ─── */
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      width: 100%;
+      max-width: 700px;
+    }
+    .step {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+    }
+    .step-num {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .step-num.s1 { background: rgba(99,179,237,0.15);  color: var(--accent1); }
+    .step-num.s2 { background: rgba(104,211,145,0.15); color: var(--accent2); }
+    .step-num.s3 { background: rgba(246,173,85,0.15);  color: var(--accent3); }
+    .step-body { flex: 1; }
+    .step-title { font-weight: 600; margin-bottom: 4px; }
+
+    /* ─── Takeaway ─── */
+    .takeaway-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      width: 100%;
+      max-width: 860px;
+    }
+    .takeaway {
+      background: var(--surface);
+      border-radius: 14px;
+      padding: 22px 20px;
+      text-align: center;
+    }
+    .takeaway .emoji { font-size: 2rem; margin-bottom: 10px; }
+    .takeaway h3 { font-size: 0.95rem; margin-bottom: 6px; }
+    .takeaway p  { font-size: 0.82rem; }
+
+    /* ─── Title slide accent ─── */
+    .glow-ring {
+      width: 280px; height: 280px;
+      border-radius: 50%;
+      position: absolute;
+      background: radial-gradient(circle, rgba(99,179,237,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<div id="progress"></div>
+<div id="slide-badge"></div>
+<div id="hint">← → 鍵盤切換</div>
+
+<div id="deck">
+
+  <!-- ① 封面 -->
+  <section class="slide active" id="s0">
+    <div class="glow-ring"></div>
+    <div class="tag tag-white">AI 學習分享會 · 2025</div>
+    <h1>用 AI 規劃旅遊</h1>
+    <p class="subtitle">Claude Code、Codex、Anti-Gravity 2.0<br>三大 AI Coding Agent 實戰比較</p>
+    <div style="margin-top:48px; display:flex; gap:12px;">
+      <span class="tag tag-blue">Claude Code</span>
+      <span class="tag tag-green">Codex</span>
+      <span class="tag tag-orange">Anti-Gravity 2.0</span>
+    </div>
+  </section>
+
+  <!-- ② 為什麼用 Coding Agent 規劃旅遊 -->
+  <section class="slide" id="s1">
+    <div class="tag tag-white">背景</div>
+    <h2>為什麼要用 AI Coding Agent 規劃旅遊？</h2>
+    <div style="max-width:800px; width:100%;">
+      <div class="card" style="margin-bottom:20px;">
+        <p style="font-size:1.05rem; color:var(--text); line-height:1.8;">
+          傳統旅遊規劃耗時費力：搜集資料、比價、排行程、整理清單⋯⋯<br>
+          AI Coding Agent 可以把這些流程<strong style="color:var(--accent1);">自動化、客製化、程式化</strong>，<br>
+          讓你用「寫需求」的方式產出完整旅遊計畫。
+        </p>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
+        <div class="highlight-box hb-blue" style="text-align:center;">🗓️<br>自動排程與行程優化</div>
+        <div class="highlight-box hb-green" style="text-align:center;">💰<br>預算試算與比價</div>
+        <div class="highlight-box hb-orange" style="text-align:center;">📋<br>打包清單與備忘錄</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ③ 三工具一覽 -->
+  <section class="slide" id="s2">
+    <div class="tag tag-white">工具介紹</div>
+    <h2>今天的三位主角</h2>
+    <div class="card-grid">
+      <div class="tool-card c1">
+        <div class="tool-icon icon1">🤖</div>
+        <span class="tool-name c1">Claude Code</span>
+        <p style="font-size:0.85rem;">Anthropic 出品的 CLI Coding Agent，擅長長文脈理解與多步驟任務執行。</p>
+      </div>
+      <div class="tool-card c2">
+        <div class="tool-icon icon2">⚡</div>
+        <span class="tool-name c2">Codex</span>
+        <p style="font-size:0.85rem;">OpenAI 推出的雲端 Coding Agent，可直接在沙盒環境執行程式並自動修正。</p>
+      </div>
+      <div class="tool-card c3">
+        <div class="tool-icon icon3">🚀</div>
+        <span class="tool-name c3">Anti-Gravity 2.0</span>
+        <p style="font-size:0.85rem;">新世代 Agentic IDE，主打多 Agent 協作與視覺化任務流程，2.0 版大幅強化推理能力。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ④ Claude Code 詳細 -->
+  <section class="slide" id="s3">
+    <div class="tag tag-blue">工具 1 / 3</div>
+    <h2 style="color:var(--accent1);">Claude Code</h2>
+    <div class="detail-layout">
+      <div class="card">
+        <h3 style="color:var(--accent1); margin-bottom:16px;">核心優勢</h3>
+        <ul class="feature-list list-blue">
+          <li>超長 context window，一次讀入整份旅遊需求文件</li>
+          <li>Extended Thinking 模式，複雜行程邏輯推理更可靠</li>
+          <li>直接在終端機操作本地檔案，輸出 .md / .csv / .ics</li>
+          <li>支援 MCP，可串接 Google Maps、Notion 等外部工具</li>
+          <li>與 Cowork、Claude Chat 的連結整合最為流暢</li>
+        </ul>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div class="highlight-box hb-blue">
+          <strong>旅遊應用場景</strong><br><br>
+          用自然語言描述「五天京都行，預算 3 萬，偏好文化古蹟」，
+          Claude Code 自動爬梳景點資料、排出最佳動線、輸出可匯入行事曆的 .ics 檔。
+          搭配 Cowork 協作模式，可以同步和同行旅伴共同修訂行程。
+        </div>
+        <div class="card" style="padding:16px 20px;">
+          <h3 style="color:var(--muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.1em;">個人心得</h3>
+          <p style="font-size:0.9rem; margin-top:8px; color:var(--text);">目前覺得 Claude Code 是三者中最全面的工具。與 Cowork 和 Chat 的連結性最好，實際做旅遊規劃時幾乎不需要切換平台，整個工作流都在 Claude 生態內完成。目前主要也是用 Claude Code 搭配 Claude Design 來處理這類任務，相當夠用。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑤ Codex 詳細 -->
+  <section class="slide" id="s4">
+    <div class="tag tag-green">工具 2 / 3</div>
+    <h2 style="color:var(--accent2);">Codex</h2>
+    <div class="detail-layout">
+      <div class="card">
+        <h3 style="color:var(--accent2); margin-bottom:16px;">核心優勢</h3>
+        <ul class="feature-list list-green">
+          <li>雲端沙盒環境，無需本地設定直接執行程式</li>
+          <li>非同步任務：丟出需求後可去做別的事，稍後回來取結果</li>
+          <li>自動 commit / PR，產出物直接進版本控制</li>
+          <li>多任務並行，同時跑多個旅遊子任務</li>
+          <li>執行速度快，適合需要快速產出初稿的場景</li>
+        </ul>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div class="highlight-box hb-green">
+          <strong>旅遊應用場景</strong><br><br>
+          同時丟出「找東京飯店比價」「規劃大阪一日遊」「整理簽證申請步驟」
+          三個任務，Codex 並行處理後統一回傳結果，大幅縮短等待時間。
+        </div>
+        <div class="card" style="padding:16px 20px;">
+          <h3 style="color:var(--muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.1em;">個人心得</h3>
+          <p style="font-size:0.9rem; margin-top:8px; color:var(--text);">速度蠻快的，這點令人滿意。但目前感覺對外的連結性沒那麼好，在需要串接外部工具或服務的旅遊任務上，整合能力還比不上 Claude Code。適合做獨立、單純的快速任務。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑥ Anti-Gravity 2.0 詳細 -->
+  <section class="slide" id="s5">
+    <div class="tag tag-orange">工具 3 / 3</div>
+    <h2 style="color:var(--accent3);">Anti-Gravity 2.0</h2>
+    <div class="detail-layout">
+      <div class="card">
+        <h3 style="color:var(--accent3); margin-bottom:16px;">核心優勢</h3>
+        <ul class="feature-list list-orange">
+          <li>多 Agent 協作架構，不同 Agent 分工執行子任務</li>
+          <li>視覺化任務流程圖，整個旅遊規劃進度一目瞭然</li>
+          <li>2.0 版強化推理引擎，複雜約束條件處理更精準</li>
+          <li>介面設計獨特，操作體驗與其他工具明顯不同</li>
+          <li>執行速度快，視覺化任務表現值得期待</li>
+        </ul>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div class="highlight-box hb-orange">
+          <strong>旅遊應用場景</strong><br><br>
+          規劃跨國多城市行程時，不同 Agent 分別負責交通、住宿、景點，
+          最後由主 Agent 整合衝突並輸出最終行程。
+          獨特的視覺化介面或許特別適合用來呈現行程地圖與時間軸。
+        </div>
+        <div class="card" style="padding:16px 20px;">
+          <h3 style="color:var(--muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.1em;">個人心得</h3>
+          <p style="font-size:0.9rem; margin-top:8px; color:var(--text);">目前還在學習摸索中，但介面蠻特別的，速度也很快。初步感覺針對視覺化任務可能會更好用，有待後續更多使用後再做觀察與評估。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑦ 比較表 -->
+  <section class="slide" id="s6">
+    <div class="tag tag-white">比較</div>
+    <h2>三工具比較一覽</h2>
+    <table class="comp-table">
+      <thead>
+        <tr>
+          <th style="text-align:left; color:var(--muted);">比較項目</th>
+          <th class="th1">Claude Code</th>
+          <th class="th2">Codex</th>
+          <th class="th3">Anti-Gravity 2.0</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>上手難度</td>
+          <td><span class="ok">中等</span></td>
+          <td><span class="good">低</span></td>
+          <td><span class="ok">中等</span></td>
+        </tr>
+        <tr>
+          <td>旅遊規劃速度</td>
+          <td><span class="good">快</span></td>
+          <td><span class="good">快（非同步）</span></td>
+          <td><span class="good">最快（並行）</span></td>
+        </tr>
+        <tr>
+          <td>輸出品質</td>
+          <td><span class="good">高</span></td>
+          <td><span class="ok">中高</span></td>
+          <td><span class="ok">【待補充】</span></td>
+        </tr>
+        <tr>
+          <td>本地檔案操作</td>
+          <td><span class="good">原生支援</span></td>
+          <td><span class="no">雲端為主</span></td>
+          <td><span class="ok">【待補充】</span></td>
+        </tr>
+        <tr>
+          <td>工具整合（MCP）</td>
+          <td><span class="good">豐富</span></td>
+          <td><span class="ok">中等</span></td>
+          <td><span class="ok">【待補充】</span></td>
+        </tr>
+        <tr>
+          <td>費用</td>
+          <td><span class="ok">按用量計費</span></td>
+          <td><span class="ok">按用量計費</span></td>
+          <td><span class="ok">【待補充】</span></td>
+        </tr>
+        <tr>
+          <td>適合旅遊情境</td>
+          <td>深度長行程</td>
+          <td>快速多任務</td>
+          <td>複雜跨城市</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ⑧ 我的工作流程 -->
+  <section class="slide" id="s7">
+    <div class="tag tag-white">實戰</div>
+    <h2>我的 AI 旅遊規劃工作流程</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num s1">1</div>
+        <div class="step-body">
+          <div class="step-title">需求輸入 — Claude Code</div>
+          <p style="font-size:0.9rem;">用自然語言描述完整旅遊需求，Claude Code 拆解成結構化任務清單，輸出 markdown 規格文件。</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num s2">2</div>
+        <div class="step-body">
+          <div class="step-title">資料蒐集 — Codex</div>
+          <p style="font-size:0.9rem;">將資料蒐集任務丟給 Codex 非同步執行：景點資料、飯店比價、交通時刻表同步進行。</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num s3">3</div>
+        <div class="step-body">
+          <div class="step-title">行程整合 — Anti-Gravity 2.0</div>
+          <p style="font-size:0.9rem;">用 Anti-Gravity 的多 Agent 架構整合所有資料，自動解決時間衝突，輸出最終可執行行程。</p>
+        </div>
+      </div>
+      <div class="step" style="opacity:0.5;">
+        <div class="step-num" style="width:32px;height:32px;border-radius:50%;background:rgba(226,232,240,0.1);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;">✓</div>
+        <div class="step-body">
+          <div class="step-title" style="color:var(--muted);">【補充：你實際的使用順序與工具搭配方式】</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑨ 總結 -->
+  <section class="slide" id="s8">
+    <div class="tag tag-white">總結</div>
+    <h2>三大心得帶走</h2>
+    <div class="takeaway-grid">
+      <div class="takeaway" style="border: 1px solid rgba(99,179,237,0.25);">
+        <div class="emoji">🏆</div>
+        <h3 style="color:var(--accent1);">Claude Code 最全面</h3>
+        <p>與 Cowork、Chat 連結性最好，工作流完全在 Claude 生態內完成，不需切換平台。</p>
+      </div>
+      <div class="takeaway" style="border: 1px solid rgba(104,211,145,0.25);">
+        <div class="emoji">⚡</div>
+        <h3 style="color:var(--accent2);">Codex 快但對外整合待加強</h3>
+        <p>速度是優勢，適合獨立快速任務；串接外部服務的能力目前還不及 Claude Code。</p>
+      </div>
+      <div class="takeaway" style="border: 1px solid rgba(246,173,85,0.25);">
+        <div class="emoji">👀</div>
+        <h3 style="color:var(--accent3);">Anti-Gravity 持續觀察中</h3>
+        <p>介面獨特、速度快，視覺化任務潛力值得期待，但仍在學習摸索，尚待更多評估。</p>
+      </div>
+    </div>
+    <div style="margin-top:32px; max-width:700px; text-align:center;">
+      <div class="highlight-box hb-blue" style="font-size:0.95rem; color:var(--text);">
+        目前主流仍是用 <strong style="color:var(--accent1);">Claude Code + Claude Design</strong> 做旅遊規劃，相當夠用。
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑩ Section Break — AI 插件 -->
+  <section class="slide" id="s9">
+    <div class="glow-ring" style="background:radial-gradient(circle,rgba(183,148,244,0.1) 0%,transparent 70%);"></div>
+    <div class="tag" style="background:rgba(183,148,244,0.1);color:var(--accent4);border:1px solid rgba(183,148,244,0.3);">新章節</div>
+    <h1 style="background:linear-gradient(135deg,var(--accent4),var(--accent5));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">主流 AI 插件介紹</h1>
+    <p class="subtitle">除了 Coding Agent，還有哪些 AI 工具值得關注？<br>從 Google 到 Microsoft Office，一次介紹好用的 AI 插件。</p>
+    <div style="margin-top:40px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
+      <span class="tag" style="background:rgba(183,148,244,0.1);color:var(--accent4);border:1px solid rgba(183,148,244,0.3);">NotebookLM</span>
+      <span class="tag" style="background:rgba(183,148,244,0.1);color:var(--accent4);border:1px solid rgba(183,148,244,0.3);">Gemini</span>
+      <span class="tag" style="background:rgba(118,228,247,0.1);color:var(--accent5);border:1px solid rgba(118,228,247,0.3);">Microsoft 365 Copilot</span>
+      <span class="tag" style="background:rgba(118,228,247,0.1);color:var(--accent5);border:1px solid rgba(118,228,247,0.3);">其他熱門插件</span>
+    </div>
+  </section>
+
+  <!-- ⑪ Google AI 工具：NotebookLM + Gemini -->
+  <section class="slide" id="s10">
+    <div class="tag" style="background:rgba(183,148,244,0.1);color:var(--accent4);border:1px solid rgba(183,148,244,0.3);">Google AI 工具</div>
+    <h2>NotebookLM &amp; Gemini</h2>
+    <div class="detail-layout" style="max-width:980px;">
+      <!-- NotebookLM -->
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div class="card" style="border-color:rgba(183,148,244,0.3);">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <div class="tool-icon" style="background:rgba(183,148,244,0.12);font-size:22px;">📓</div>
+            <span style="font-size:1.1rem;font-weight:700;color:var(--accent4);">NotebookLM</span>
+          </div>
+          <ul class="feature-list list-purple">
+            <li>上傳 PDF、文件、網址，AI 自動整理成知識庫</li>
+            <li>一鍵生成 <strong style="color:var(--accent4);">Podcast 音頻</strong>，兩位 AI 主持人對談式摘要</li>
+            <li>對文件內容直接提問，引用來源清楚標示</li>
+            <li>自動產出心智圖、學習指南、FAQ</li>
+          </ul>
+        </div>
+        <div class="highlight-box" style="background:rgba(183,148,244,0.07);border:1px solid rgba(183,148,244,0.2);color:var(--accent4);">
+          <strong>旅遊應用：</strong> 把旅遊指南、部落格文章全部丟進去，讓 NotebookLM 幫你整理成問答式的旅遊知識庫，出發前快速複習。
+        </div>
+      </div>
+      <!-- Gemini -->
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div class="card" style="border-color:rgba(118,228,247,0.3);">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <div class="tool-icon" style="background:rgba(118,228,247,0.12);font-size:22px;">✨</div>
+            <span style="font-size:1.1rem;font-weight:700;color:var(--accent5);">Gemini</span>
+          </div>
+          <ul class="feature-list list-cyan">
+            <li>深度整合 Google Workspace（Docs、Sheets、Gmail、Meet）</li>
+            <li>Google Maps、Search、Flights 即時資訊串接</li>
+            <li>多模態輸入：文字、圖片、語音、影片皆支援</li>
+            <li>Deep Research 模式，自動彙整網路資料成長篇報告</li>
+          </ul>
+        </div>
+        <div class="highlight-box" style="background:rgba(118,228,247,0.07);border:1px solid rgba(118,228,247,0.2);color:var(--accent5);">
+          <strong>旅遊應用：</strong> 在 Gmail 草擬旅館訂房信件、在 Google Docs 同步整理行程、用 Deep Research 一次查完目的地的交通與物價資訊。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑫ 其他熱門 AI 插件 -->
+  <section class="slide" id="s11">
+    <div class="tag" style="background:rgba(183,148,244,0.1);color:var(--accent4);border:1px solid rgba(183,148,244,0.3);">熱門插件</div>
+    <h2>其他值得關注的 AI 工具</h2>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;width:100%;max-width:900px;">
+
+      <div class="card" style="border-color:rgba(183,148,244,0.25);padding:20px 24px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span style="font-size:1.3rem;">🤖</span>
+          <span style="font-weight:700;color:var(--accent4);">ChatGPT / GPTs</span>
+        </div>
+        <p style="font-size:0.85rem;line-height:1.7;">Custom GPTs 讓任何人都能打造專屬 AI 助理。旅遊情境下可以建立「行前檢查表 Bot」「簽證攻略 Bot」等，直接分享給朋友使用。</p>
+      </div>
+
+      <div class="card" style="border-color:rgba(118,228,247,0.25);padding:20px 24px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span style="font-size:1.3rem;">🔍</span>
+          <span style="font-weight:700;color:var(--accent5);">Perplexity AI</span>
+        </div>
+        <p style="font-size:0.85rem;line-height:1.7;">AI 搜尋引擎，回答附帶即時網路來源。查詢「2025 年日本入境規定」「京都最新票價」這類需要即時資訊的旅遊問題特別好用。</p>
+      </div>
+
+      <div class="card" style="border-color:rgba(183,148,244,0.25);padding:20px 24px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span style="font-size:1.3rem;">🎨</span>
+          <span style="font-weight:700;color:var(--accent4);">Gamma</span>
+        </div>
+        <p style="font-size:0.85rem;line-height:1.7;">AI 簡報製作工具。輸入主題或大綱，自動生成設計精美的投影片。分享旅遊心得或做行程提案時，比 PowerPoint 快上數倍。</p>
+      </div>
+
+      <div class="card" style="border-color:rgba(118,228,247,0.25);padding:20px 24px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span style="font-size:1.3rem;">🗺️</span>
+          <span style="font-weight:700;color:var(--accent5);">Napkin AI</span>
+        </div>
+        <p style="font-size:0.85rem;line-height:1.7;">把文字內容自動轉換成視覺化圖表與示意圖。將旅遊行程文字貼入，立即產出時間軸或流程圖，簡報視覺效果大幅提升。</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ⑬ Microsoft Office AI 插件 -->
+  <section class="slide" id="s12">
+    <div class="tag" style="background:rgba(118,228,247,0.1);color:var(--accent5);border:1px solid rgba(118,228,247,0.3);">Microsoft 365</div>
+    <h2>Office 裡的 AI 插件</h2>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;width:100%;max-width:960px;">
+
+      <div class="tool-card" style="border:1px solid rgba(118,228,247,0.3);gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:1.6rem;">📝</span>
+          <span style="font-weight:700;color:var(--accent5);">Word Copilot</span>
+        </div>
+        <p style="font-size:0.82rem;line-height:1.6;">草擬旅遊行程文件、自動摘要長篇攻略、依照你的語氣改寫內容。從空白頁到完整文件只需幾秒。</p>
+        <div style="margin-top:4px;padding:8px 12px;border-radius:8px;background:rgba(118,228,247,0.07);font-size:0.78rem;color:var(--accent5);">✦ 草稿生成 &nbsp;✦ 改寫潤稿</div>
+      </div>
+
+      <div class="tool-card" style="border:1px solid rgba(118,228,247,0.3);gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:1.6rem;">📊</span>
+          <span style="font-weight:700;color:var(--accent5);">Excel Copilot</span>
+        </div>
+        <p style="font-size:0.82rem;line-height:1.6;">用自然語言操作試算表：「幫我算每人平均費用」「標示超出預算的項目」，不用寫公式也能完成複雜分析。</p>
+        <div style="margin-top:4px;padding:8px 12px;border-radius:8px;background:rgba(118,228,247,0.07);font-size:0.78rem;color:var(--accent5);">✦ 預算試算 &nbsp;✦ 自動圖表</div>
+      </div>
+
+      <div class="tool-card" style="border:1px solid rgba(118,228,247,0.3);gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:1.6rem;">🖼️</span>
+          <span style="font-weight:700;color:var(--accent5);">PowerPoint Designer</span>
+        </div>
+        <p style="font-size:0.82rem;line-height:1.6;">貼入文字或圖片後自動推薦版面設計，AI 幫你配色與排版。旅遊照片 + 行程摘要秒變精緻簡報。</p>
+        <div style="margin-top:4px;padding:8px 12px;border-radius:8px;background:rgba(118,228,247,0.07);font-size:0.78rem;color:var(--accent5);">✦ 自動排版 &nbsp;✦ 設計建議</div>
+      </div>
+
+      <div class="tool-card" style="border:1px solid rgba(183,148,244,0.3);gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:1.6rem;">📧</span>
+          <span style="font-weight:700;color:var(--accent4);">Outlook Copilot</span>
+        </div>
+        <p style="font-size:0.82rem;line-height:1.6;">一鍵摘要長信件串、草擬訂房確認信、自動整理行程相關郵件。旅遊前後的大量郵件不再是負擔。</p>
+        <div style="margin-top:4px;padding:8px 12px;border-radius:8px;background:rgba(183,148,244,0.07);font-size:0.78rem;color:var(--accent4);">✦ 信件摘要 &nbsp;✦ 快速草稿</div>
+      </div>
+
+      <div class="tool-card" style="border:1px solid rgba(183,148,244,0.3);gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:1.6rem;">💬</span>
+          <span style="font-weight:700;color:var(--accent4);">Teams Copilot</span>
+        </div>
+        <p style="font-size:0.82rem;line-height:1.6;">會議結束後自動生成逐字稿與行動項目摘要。團體旅遊討論會議不用再自己做紀錄，直接讓 AI 整理決議事項。</p>
+        <div style="margin-top:4px;padding:8px 12px;border-radius:8px;background:rgba(183,148,244,0.07);font-size:0.78rem;color:var(--accent4);">✦ 會議摘要 &nbsp;✦ 待辦清單</div>
+      </div>
+
+      <div class="tool-card" style="border:1px solid rgba(183,148,244,0.3);gap:10px;justify-content:center;align-items:center;text-align:center;">
+        <span style="font-size:2rem;">💡</span>
+        <p style="font-size:0.85rem;line-height:1.6;color:var(--muted);">Microsoft 365 Copilot 需要訂閱授權，但整合在熟悉的 Office 介面內，對於已在使用 Microsoft 套件的人來說學習成本幾乎為零。</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ⑭ Q&A -->
+  <section class="slide" id="s13">
+    <div class="glow-ring"></div>
+    <div class="tag tag-white">結束</div>
+    <h1>Q &amp; A</h1>
+    <p class="subtitle" style="margin-top:24px;">謝謝大家的聆聽<br>歡迎一起探討 AI 旅遊規劃的更多可能</p>
+  </section>
+
+</div><!-- /#deck -->
+
+<!-- Navigation -->
+<div id="nav">
+  <button class="nav-btn" id="prev" title="上一頁">←</button>
+  <span id="counter"></span>
+  <button class="nav-btn" id="next" title="下一頁">→</button>
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const total = slides.length;
+  let cur = 0;
+
+  function go(n) {
+    if (n < 0 || n >= total) return;
+    slides[cur].classList.remove('active');
+    slides[cur].classList.add('exit');
+    setTimeout(() => slides[cur < n ? cur : n + (cur - n)].classList.remove('exit'), 400);
+    // reset exit on old
+    const old = cur;
+    setTimeout(() => slides[old].classList.remove('exit'), 420);
+    cur = n;
+    slides[cur].classList.add('active');
+    update();
+  }
+
+  function update() {
+    document.getElementById('counter').textContent = (cur + 1) + ' / ' + total;
+    document.getElementById('slide-badge').textContent = (cur + 1) + ' / ' + total;
+    document.getElementById('progress').style.width = ((cur + 1) / total * 100) + '%';
+    document.getElementById('prev').style.opacity = cur === 0 ? '0.3' : '1';
+    document.getElementById('next').style.opacity = cur === total - 1 ? '0.3' : '1';
+  }
+
+  document.getElementById('prev').addEventListener('click', () => go(cur - 1));
+  document.getElementById('next').addEventListener('click', () => go(cur + 1));
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') go(cur + 1);
+    if (e.key === 'ArrowLeft'  || e.key === 'PageUp')  go(cur - 1);
+  });
+
+  // Touch / swipe
+  let tx = 0;
+  document.addEventListener('touchstart', e => { tx = e.touches[0].clientX; });
+  document.addEventListener('touchend',   e => {
+    const dx = e.changedTouches[0].clientX - tx;
+    if (dx < -50) go(cur + 1);
+    if (dx >  50) go(cur - 1);
+  });
+
+  update();
+</script>
+</body>
+</html>
